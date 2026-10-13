@@ -272,4 +272,41 @@ t.test("cancelled replacement preserves the existing book", function()
     eq(removed[1], DEST .. ".tmp")
 end)
 
+t.test("auto-open launches after refresh without the read prompt", function()
+    local store = package.loaded["lib/bookshelf_settings_store"]
+    local old = store.isTrue
+    store.isTrue = function(key) return key == "opds_auto_open_downloads" end
+    local _, box = run()
+    store.isTrue = old
+    eq(box, nil)
+    eq(count("launchReader"), 1)
+    eq(count("rebuild"), 1)
+    assert(indexOf("settings_save") < indexOf("launchReader"))
+    assert(indexOf("rebuild") < indexOf("launchReader"))
+end)
+
+t.test("auto-open never launches after failure, cancellation or shelf closure", function()
+    local store = package.loaded["lib/bookshelf_settings_store"]
+    local old = store.isTrue
+    store.isTrue = function(key) return key == "opds_auto_open_downloads" end
+    local download = package.loaded["lib/bookshelf_opds_download"]
+    local real_download = download.download
+    download.download = function() return nil, "network failure" end
+    run(); eq(count("launchReader"), 0)
+    download.download = real_download
+    local trap = package.loaded["ui/trapper"]
+    local real_run = trap.dismissableRunInSubprocess
+    trap.dismissableRunInSubprocess = function() return false end
+    run(); eq(count("launchReader"), 0)
+    trap.dismissableRunInSubprocess = function(_, task)
+        local result = task()
+        BW.live = shelf()
+        return true, result
+    end
+    local _, box = run()
+    eq(count("launchReader"), 0); eq(box, nil)
+    trap.dismissableRunInSubprocess = real_run
+    store.isTrue = old
+end)
+
 t.done()

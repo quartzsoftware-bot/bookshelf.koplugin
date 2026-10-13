@@ -796,4 +796,20 @@ t.test("_pickListFontScale: the label is the percentage", function()
 end)
 
 
+t.test("OPDS auto-open toggle persists and can be turned off", function()
+    lua_store.opds_auto_open_downloads = nil
+    local row
+    for _, item in ipairs(Settings:_behaviourSubItems()) do
+        if item.text == "Open OPDS downloads automatically" then row = item end
+    end
+    assert(row, "auto-open setting missing from Behavior")
+    eq(row.checked_func(), false)
+    row.callback()
+    eq(lua_store.opds_auto_open_downloads, true)
+    eq(row.checked_func(), true)
+    row.callback()
+    eq(lua_store.opds_auto_open_downloads, false)
+    eq(row.checked_func(), false)
+end)
+
 t.done()

@@ -4115,6 +4115,18 @@ function Settings:_behaviourSubItems()
             BookshelfSettings.save("show_close_msg", not enabled)
         end,
     }
+    items[#items + 1] = {
+        text = _("Open OPDS downloads automatically"),
+        help_text = _("Open a book or article immediately after a successful OPDS download, instead of asking whether to read it. Applies to new downloads and updates."),
+        checked_func = function()
+            return BookshelfSettings.isTrue("opds_auto_open_downloads")
+        end,
+        keep_menu_open = true,
+        callback = function()
+            BookshelfSettings.save("opds_auto_open_downloads",
+                not BookshelfSettings.isTrue("opds_auto_open_downloads"))
+        end,
+    }
     return items
 end
 

@@ -1,6 +1,6 @@
 # OPDS version-check fork
 
-Based on AndyHazz/bookshelf.koplugin v5.4.3. Fork version: 5.4.3-opds.1.
+Based on AndyHazz/bookshelf.koplugin v5.4.3. Fork version: 5.4.3-opds.2.
 
 Tapping a downloaded OPDS book checks its acquisition on the server. Matching
 copies open directly. Different copies offer **Update** or **Open local copy**.
@@ -43,3 +43,13 @@ upstream. Do not delete books or their `.sdr` directories when reverting.
 Validation: `LUA=luajit sh tests/run.sh`. The version suites cover exact matching,
 same-size differences, changed/weak/missing ETags, local edits, network/auth errors,
 redirects, truncated responses, acquisition ambiguity, UI prompts and cancellation.
+
+## Automatically open downloads
+
+Under **Bookshelf → Settings → Behavior**, enable **Open OPDS downloads
+automatically** to skip the “Read it now?” prompt after a successful download.
+This applies to articles/books and accepted updates. It is off by default; turning
+it off restores the prompt. The persisted boolean flag is
+`opds_auto_open_downloads` in Bookshelf's settings store. Failed or cancelled
+downloads never open a book, and a closed/replaced shelf cannot launch the reader.
+The downloaded marker refreshes before opening, and queued input is suppressed.

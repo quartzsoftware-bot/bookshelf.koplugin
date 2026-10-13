@@ -19142,6 +19142,17 @@ function BookshelfWidget:_opdsRunDownload(book, acq, dest, dialog)
                 UIManager:setDirty(self, "ui")
             end
 
+            if BookshelfSettings.isTrue("opds_auto_open_downloads") then
+                if BookshelfWidget.live == self then
+                    -- Do not replay taps queued during the transfer into the reader.
+                    if Device.input and Device.input.inhibitInputUntil then
+                        Device.input:inhibitInputUntil(true)
+                    end
+                    self:_launchReader(path)
+                end
+                return
+            end
+
             UIManager:show(require("ui/widget/confirmbox"):new{
                 text        = T(_("%1 downloaded. Read it now?"), title),
                 ok_text     = _("Read"),
