@@ -7616,10 +7616,8 @@ end
 -- own records carry -- or nil for anything else: a window that was never
 -- fetched, one still holding a rel=next, more than one book, or any subfolder.
 --
--- Single-sourced deliberately. The tile FLATTENING (the opds branch of
--- getBySource) and the tap DECISION have to agree, or a tile rendered as a book
--- would drill in like a folder. Both go through opdsLoneChildBook, so the two
--- can only ever answer the same way.
+-- Parent shelf tiles remain folders. This shortcut is used only after a
+-- deliberate tap; cached child data never substitutes a parent tile.
 --
 -- Cache-only, like everything else in this branch: OpdsWindow.load reads the
 -- persisted window and never touches the network. The widget is what decides
@@ -7781,9 +7779,8 @@ function Repo.getBySource(source, filter, sort_priority, offset, limit, opts)
         page.opds_needs_fetch = OpdsWindow.needsFetch(win, offset or 0, limit or 0)
                                 or ((win.count or 0) == 0 and win.fetched_at == 0)
         -- Child windows loaded while decorating this page, keyed by feed url.
-        -- The flattening pass and the cover borrow below both want a nav
-        -- record's child window and neither may pay for it twice, so the load
-        -- is memoised here (false memoises "load returned nothing", so a miss
+        -- Cover borrowing may consult a nav record's child window more than
+        -- once; memoise that lookup here (false memoises "load returned nothing", so a miss
         -- is not retried either).
         local child_windows = {}
         local function childWindow(url)
@@ -7794,43 +7791,10 @@ function Repo.getBySource(source, filter, sort_priority, offset, limit, opts)
             end
             return w or nil
         end
-        -- Folder of one: a nav tile whose child feed holds exactly one book and
-        -- no subfolders IS that book, so render it as the book rather than as a
-        -- folder the user has to open to find a single thing inside (Project
-        -- Gutenberg's popular lists are entirely this shape).
-        --
-        -- Cache-only, zero network -- the same discipline as the cover borrow
-        -- below: OpdsWindow.load reads the persisted window and never fetches.
-        -- A child that has never been drilled into has no cached window and so
-        -- stays a folder; drilling into it once caches the window and the tile
-        -- flattens on the next visit. That is the whole degradation: a folder,
-        -- exactly as before this pass existed.
-        --
-        -- Runs BEFORE the cover and downloaded passes below so the substituted
-        -- record is decorated like any other book on the page -- its own cached
-        -- cover, its own downloaded tick -- rather than needing a second copy
-        -- of that logic. Everything downstream then treats it as the ordinary
-        -- remote book it is: tap opens the book modal, download works, the
-        -- already-have tick shows.
-        --
-        -- Shallow copy for the same reason OpdsWindow.slice copies: page
-        -- records get decorated, and a decorated record that is still the
-        -- STORED window entry would be serialised into the OPDS cache on the
-        -- next save. slice() copied what it handed back; win.entries read here
-        -- is the stored table, so copy it before it enters the page.
-        if not light_only then
-            for _i = 1, #page do
-                local rec = page[_i]
-                if rec.is_opds_nav and rec.opds and rec.opds.feed_url then
-                    local lone = opdsLoneChildBook(childWindow(rec.opds.feed_url))
-                    if lone then
-                        local copy = {}
-                        for k, v in pairs(lone) do copy[k] = v end
-                        page[_i] = copy
-                    end
-                end
-            end
-        end
+        -- Keep navigation tiles stable while child feeds load. Replacing a
+        -- one-book folder here changes the visible tile after first paint.
+        -- A deliberate folder tap may still open its lone book directly via
+        -- Repo.opdsLoneChildBook; cache availability never changes the parent.
         -- Render-time decoration: the description mirror, the record's own
         -- cached cover, the downloaded tick. Factored out because
         -- Repo.opdsLoneChildBook has to apply exactly the same set to the one

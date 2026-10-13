@@ -4498,7 +4498,43 @@ local function _opdsFlattenCleanup()
     if _G._test_settings then _G._test_settings["bookshelf_opds_downloads"] = nil end
 end
 
-test("getBySource: opds nav folder holding exactly one cached book renders as that book", function()
+test("OPDS News tile keeps its identity when its single child finishes loading", function()
+    local loaded = false
+    local nav = { filepath = "OPDS://news/nav", kind = "opds_nav", is_opds_nav = true,
+        is_remote = true, title = "News", opds = {feed_url = "http://news/child"} }
+    local article = { filepath = "OPDS://news/article", title = "Today's article", is_remote = true,
+        opds = {acquisitions = {{type="application/epub+zip",href="http://news/article.epub"}}} }
+    _opdsFlattenLfsStub()
+    package.loaded["lib/bookshelf_opds_window"] = {
+        load = function(_, url)
+            if url == "http://news/child" then
+                return { entries=loaded and {article} or {}, fetched_at=loaded and 1 or 0 }
+            end
+            return {entries={nav},fetched_at=1}
+        end,
+        slice = function(win)
+            local result = {}
+            for i,rec in ipairs(win.entries) do
+                local copy = {}; for k,v in pairs(rec) do copy[k]=v end
+                result[i]=copy
+            end
+            return result,#result,false
+        end,
+        needsFetch = function() return false end,
+    }
+    package.loaded["lib/bookshelf_opds_covers"] = {
+        cachePath=function() return nil end, cachedPath=function() return nil end,
+    }
+    local source = {kind="opds",id="news",feed_url="http://news/root"}
+    local before = Repo.getBySource(source,nil,nil,0,10)
+    loaded = true
+    local after = Repo.getBySource(source,nil,nil,0,10)
+    _opdsFlattenCleanup()
+    assert(before[1].filepath == after[1].filepath,
+        "visible News tile changes from " .. before[1].filepath .. " to " .. after[1].filepath)
+end)
+
+test("getBySource: a cached single-book OPDS folder keeps its navigation identity", function()
     local nav = { filepath = "OPDS://f1/nav/work", kind = "opds_nav", is_opds_nav = true,
                   is_remote = true, title = "Moby Dick", display_title = "Moby Dick",
                   opds = { feed_url = "http://f1/work" } }
@@ -4552,15 +4588,13 @@ test("getBySource: opds nav folder holding exactly one cached book renders as th
     _opdsFlattenCleanup()
 
     assert(total == 1, "the page still holds one record")
-    assert(list[1].filepath == "OPDS://f1/book1", "the nav record is replaced by the child book")
-    assert(list[1].is_opds_nav == nil, "the substituted record is an ordinary remote book")
-    assert(list[1].kind == nil, "no leftover opds_nav kind")
-    assert(list[1].opds.acquisitions ~= nil, "the book's acquisitions come through, so download works")
-    -- Decoration ordering: the substitution happens BEFORE the cover and
-    -- downloaded passes, so the book is decorated like any other page record.
-    assert(list[1].cover_image_path == "/cache/b1.img", "the substituted book gets its OWN cached cover")
-    assert(list[1].cover_borrowed == nil, "its own cover is not a borrow")
-    assert(list[1].downloaded == true, "the downloaded tick lands on the substituted book")
+    assert(list[1].filepath == nav.filepath, "the navigation tile stays a folder")
+    assert(list[1].is_opds_nav == true)
+    assert(list[1].kind == "opds_nav")
+    assert(list[1].opds.acquisitions == nil, "folder keeps its navigation action")
+    assert(list[1].cover_image_path == "/cache/b1.img", "folder may borrow cached child artwork")
+    assert(list[1].cover_borrowed == true)
+    assert(list[1].downloaded == nil, "a downloaded child does not turn the folder into a book")
     -- Shallow copy, same discipline as OpdsWindow.slice: the stored child entry
     -- must not pick up render state that would then be persisted.
     assert(child.cover_image_path == nil, "the stored child entry is never decorated")
@@ -4938,7 +4972,7 @@ test("getBySource: opds book records mirror opds.summary into description", func
     assert(list[4].description == nil, "a nav folder is not a book and gets no description")
 end)
 
-test("getBySource: the flattened folder-of-one book carries its summary as description", function()
+test("getBySource: a single-book folder does not acquire its child description", function()
     -- Decoration ordering again: the substituted child must be decorated like
     -- any other page record, description included.
     local nav = { filepath = "OPDS://d2/nav/work", kind = "opds_nav", is_opds_nav = true,
@@ -4982,9 +5016,8 @@ test("getBySource: the flattened folder-of-one book carries its summary as descr
         { kind = "opds", id = "d2", feed_url = "http://d2/root" }, nil, nil, 0, 10)
     _opdsFlattenCleanup()
 
-    assert(list[1].filepath == "OPDS://d2/book1", "the folder still flattens to the child book")
-    assert(list[1].description == "Call me Ishmael.",
-        "and the substituted book carries the description, got " .. tostring(list[1].description))
+    assert(list[1].filepath == nav.filepath, "folder remains the parent record")
+    assert(list[1].description == nil, "child metadata must not replace the folder")
     assert(child.description == nil,
         "the STORED child entry is never decorated (it would be persisted)")
 end)

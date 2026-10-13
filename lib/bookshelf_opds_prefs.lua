@@ -96,20 +96,10 @@ M.REFRESH_OPTIONS = {
 -- when they disagree the symptom is a cover that downloads to one path and is
 -- looked for at another - covers that silently never appear.
 
--- Nav-tile resolution is no longer a choice either: a subcatalog holding one
--- book is always shown as that book.
---
--- It was opt-in because it costs one feed fetch PER TILE, and a fifteen-tile
--- page was fifteen requests paced one per tick. Three things changed that
--- arithmetic: tiles that DECLARE more than one item are skipped without being
--- fetched (IA's category tiles say ~10000 apiece), the fetches run in parallel
--- workers rather than one per tick, and a resolved tile's cover now joins the
--- same chain instead of waiting for a second pass.
---
--- Honest about the limit, which no setting could fix: a tile holding two
--- editions (Gutenberg's do) is a real folder and stays one. This makes
--- single-book folders into books; it cannot make a two-item folder into a
--- book.
+-- Navigation tiles remain folders even when a cached child contains one book.
+-- Resolving every child in the background used to replace a visible folder
+-- with an article, causing a second layout/render. Only deliberate navigation
+-- now fetches child feeds; covers continue filling normally.
 
 -- How many records to ask a feed for is no longer a choice either: one
 -- screenful, and the shelf keeps a page in hand ahead of you
@@ -216,10 +206,10 @@ function M.autoCovers(_tab)
     return true
 end
 
--- resolveNav(tab) -> boolean. Should the background pass fetch nav tiles to
--- flatten single-book folders? Always, now.
+-- Parent shelves keep their folders stable. Fetch a child feed when the user
+-- opens that folder, not speculatively to replace a tile already on screen.
 function M.resolveNav(_tab)
-    return true
+    return false
 end
 
 -- concurrency(tab) -> the pool's STARTING width. The pool narrows from here on

@@ -1,6 +1,6 @@
 # OPDS version-check fork
 
-Based on AndyHazz/bookshelf.koplugin v5.4.3. Fork version: 5.4.3-opds.2.
+Based on AndyHazz/bookshelf.koplugin v5.4.3. Fork version: 5.4.3-opds.3.
 
 Tapping a downloaded OPDS book checks its acquisition on the server. Matching
 copies open directly. Different copies offer **Update** or **Open local copy**.
@@ -53,3 +53,12 @@ it off restores the prompt. The persisted boolean flag is
 `opds_auto_open_downloads` in Bookshelf's settings store. Failed or cancelled
 downloads never open a book, and a closed/replaced shelf cannot launch the reader.
 The downloaded marker refreshes before opening, and queued input is suppressed.
+
+## Stable OPDS folders
+
+Parent shelves keep their folder tiles, including folders containing one article.
+Loading a child feed no longer replaces a visible folder with its article. The
+background cover queue no longer fetches children just to collapse their folders;
+cover loading and deliberate folder navigation still work. Tapping a single-item
+folder retains the existing shortcut to its article preview. This applies to
+cached folders as well as first visits, without clearing catalogs or downloads.

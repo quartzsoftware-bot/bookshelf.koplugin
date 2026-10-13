@@ -95,16 +95,13 @@ eq(P.isStale({ opds_refresh_age = HOUR }, nil, NOW), false, "missing fetched_at 
 -- Clock moved backwards, or settings copied from another device.
 eq(P.isStale({ opds_refresh_age = DAY }, NOW + DAY, NOW), true, "future fetched_at reads as stale, not fresh forever")
 
--- Cover mode.
--- Covers and folder resolution are no longer configurable. A chip carrying a
--- stale opds_cover_mode / opds_resolve_nav from the version that offered them
--- must not be able to turn either back off.
-eq(P.autoCovers{ opds_cover_mode = "tap" }, true, "a stale tap-only chip still loads covers")
-eq(P.resolveNav{ opds_resolve_nav = nil }, true, "one-book folders always show as books")
-eq(P.resolveNav{ opds_resolve_nav = "never" }, true, "a stale opt-out is ignored")
-eq(P.resolveNav(nil), true, "nil tab resolves too")
-
-eq(P.resolveNav{}, true, "an unset chip resolves one-book folders")
+-- Covers still load, but background work must not resolve folders into books.
+eq(P.autoCovers{ opds_cover_mode = "tap" }, true, "covers still load")
+eq(P.resolveNav{ opds_resolve_nav = nil }, false, "folders stay stable by default")
+eq(P.resolveNav{ opds_resolve_nav = "never" }, false, "legacy opt-out remains stable")
+eq(P.resolveNav{ opds_resolve_nav = "always" }, false, "legacy opt-in cannot restore the double render")
+eq(P.resolveNav(nil), false, "nil tab keeps folders too")
+eq(P.resolveNav{}, false, "unset chip does not fetch children for collapse")
 
 -- Timeouts: one pair for everyone now.
 eq(P.timeouts{ opds_timeout = 10 }.total_timeout, 30,
