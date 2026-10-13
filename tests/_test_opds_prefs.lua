@@ -95,13 +95,13 @@ eq(P.isStale({ opds_refresh_age = HOUR }, nil, NOW), false, "missing fetched_at 
 -- Clock moved backwards, or settings copied from another device.
 eq(P.isStale({ opds_refresh_age = DAY }, NOW + DAY, NOW), true, "future fetched_at reads as stale, not fresh forever")
 
--- Covers still load, but background work must not resolve folders into books.
+-- Covers still load, but post-render work must not resolve folders into books.
 eq(P.autoCovers{ opds_cover_mode = "tap" }, true, "covers still load")
-eq(P.resolveNav{ opds_resolve_nav = nil }, false, "folders stay stable by default")
+eq(P.resolveNav{ opds_resolve_nav = nil }, false, "late folder substitution stays disabled")
 eq(P.resolveNav{ opds_resolve_nav = "never" }, false, "legacy opt-out remains stable")
 eq(P.resolveNav{ opds_resolve_nav = "always" }, false, "legacy opt-in cannot restore the double render")
-eq(P.resolveNav(nil), false, "nil tab keeps folders too")
-eq(P.resolveNav{}, false, "unset chip does not fetch children for collapse")
+eq(P.resolveNav(nil), false, "nil tab uses preflight too")
+eq(P.resolveNav{}, false, "unset chip does not resolve after paint")
 
 -- Timeouts: one pair for everyone now.
 eq(P.timeouts{ opds_timeout = 10 }.total_timeout, 30,

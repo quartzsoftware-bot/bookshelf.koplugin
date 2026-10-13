@@ -96,10 +96,9 @@ M.REFRESH_OPTIONS = {
 -- when they disagree the symptom is a cover that downloads to one path and is
 -- looked for at another - covers that silently never appear.
 
--- Navigation tiles remain folders even when a cached child contains one book.
--- Resolving every child in the background used to replace a visible folder
--- with an article, causing a second layout/render. Only deliberate navigation
--- now fetches child feeds; covers continue filling normally.
+-- Single-book folders resolve before the shelf's content is published. The
+-- ordinary cover queue must not perform late tile substitutions; the separate
+-- preflight gate owns child-feed resolution and cancellation.
 
 -- How many records to ask a feed for is no longer a choice either: one
 -- screenful, and the shelf keeps a page in hand ahead of you
@@ -206,8 +205,8 @@ function M.autoCovers(_tab)
     return true
 end
 
--- Parent shelves keep their folders stable. Fetch a child feed when the user
--- opens that folder, not speculatively to replace a tile already on screen.
+-- Do not resolve folders in the post-render cover queue. The preflight gate
+-- resolves uncertain folders before their page can be displayed.
 function M.resolveNav(_tab)
     return false
 end

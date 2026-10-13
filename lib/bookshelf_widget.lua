@@ -2094,7 +2094,9 @@ function BookshelfWidget:_rebuild()
         -- them correctly.
         local placeholder_text
         local _tip = self._drilldown_path[#self._drilldown_path]
-        if _tip and _tip.kind == "search" then
+        if items.opds_preflight then
+            placeholder_text = _("Loading shelf…")
+        elseif _tip and _tip.kind == "search" then
             placeholder_text = string.format(
                 _("No matches for \"%s\""), _tip.payload.query or "")
         elseif _source_kind == "series" then
@@ -16010,6 +16012,7 @@ end
 -- Armed by the navigation gestures only -- chip select, page turn, page
 -- jump, swipe-down refresh -- and consumed by the next _opdsAfterPage.
 function BookshelfWidget:_markOpdsNav()
+    require("lib/bookshelf_opds_preflight").reset()
     self._opds_nav_pending = true
 end
 
@@ -16851,6 +16854,83 @@ local function _storeChildFeed(server_key, feed_url, body)
     return true
 end
 
+-- Resolve the visible page's uncertain child feeds off the paint path. The
+-- repository withholds its tiles until the whole batch has settled, so neither
+-- a partial completion nor a cover repaint exposes provisional folder cards.
+function BookshelfWidget:_opdsResolveBeforePaint(items)
+    if self._opds_preflight_scheduled then return end
+    self._opds_preflight_scheduled = true
+    UIManager:nextTick(function()
+        self._opds_preflight_scheduled = nil
+        if BookshelfWidget.live ~= self then return end
+        items = self._page_items and self._page_items.opds_preflight
+        if not items then return end
+        if self:_opdsFetchBusy() then
+            UIManager:scheduleIn(0.25, function()
+                if BookshelfWidget.live == self and self._page_items
+                        and self._page_items.opds_preflight then
+                    self:_opdsResolveBeforePaint(self._page_items.opds_preflight)
+                end
+            end)
+            return
+        end
+        local Preflight = require("lib/bookshelf_opds_preflight")
+        local Network = require("ui/network/manager")
+        if not Network:isConnected() then
+            Preflight.settle(items)
+            self:_rebuild()
+            UIManager:setDirty(self, "ui")
+            return
+        end
+        local Source = require("lib/bookshelf_opds_source")
+        local Feed = require("lib/bookshelf_opds_feed")
+        local queue = {}
+        for _, item in ipairs(items) do
+            local server = Source.getServer(item.server_key)
+            if server then
+                local same = Feed.sameOrigin(server.url, item.feed_url)
+                queue[#queue + 1] = {
+                    server_key=item.server_key, feed_url=item.feed_url,
+                    user=same and server.username or nil,
+                    password=same and server.password or nil,
+                }
+            end
+        end
+        local Trapper = require("ui/trapper")
+        Trapper:wrap(function()
+            self._opds_download_started_at = os.time()
+            local completed, results = Trapper:dismissableRunInSubprocess(function()
+                local out, started = {}, os.time()
+                for i, item in ipairs(queue) do
+                    if os.time() - started >= 30 then break end
+                    local body = Feed.fetch(item.feed_url, item.user, item.password,
+                        {block_timeout=5, total_timeout=10})
+                    out[i] = body or false
+                end
+                return out
+            end, _("Loading shelf… (tap to cancel)"))
+            Trapper:clear()
+            self._opds_download_started_at = nil
+            -- Parse and commit only after the batch finishes. No repaint can
+            -- see one child resolved while its neighbours are still pending.
+            if completed and type(results) == "table" then
+                for i, item in ipairs(queue) do
+                    if type(results[i]) == "string" then
+                        pcall(_storeChildFeed, item.server_key, item.feed_url, results[i])
+                    end
+                end
+            end
+            -- A failed/cancelled child remains a usable folder for this visit.
+            -- Retry only on deliberate navigation, never on passive repaints.
+            Preflight.settle(items)
+            if BookshelfWidget.live ~= self then return end
+            self:_rebuild()
+            UIManager:setDirty(self, "ui")
+            self:_opdsEnsureCovers()
+        end)
+    end)
+end
+
 -- _storeFeedPage(server_key, store_url, fetched_url, body) -> did records land
 -- Append the NEXT page of a feed to that feed's own window.
 --
@@ -16988,6 +17068,7 @@ end
 -- never race each other or double the fetches in flight. Kept as the name every
 -- render path already calls.
 function BookshelfWidget:_opdsEnsureCovers()
+    if self._page_items and self._page_items.opds_preflight then return end
     -- Effective, not active: a drilled navigation entry renders remote records
     -- exactly like the chip's root feed does, so its thumbnails have to fill
     -- too. Non-OPDS views resolve to nil and bail here as before.
@@ -17824,7 +17905,12 @@ function BookshelfWidget:_opdsAfterPage(items)
     -- re-arms deliberately and is picked up by the very next rebuild).
     local user_nav = self._opds_nav_pending
     self._opds_nav_pending = nil
-    if not user_nav then return end
+    if not user_nav then
+        if items and items.opds_preflight then
+            self:_opdsResolveBeforePaint(items.opds_preflight)
+        end
+        return
+    end
     -- Which feed the page belongs to, resolved the same way _fetchChipItems
     -- picked what to render: a drilled navigation entry's subcatalog wins over
     -- the chip's own source, and any other drilldown tip (search results, a
@@ -17973,6 +18059,10 @@ function BookshelfWidget:_opdsAfterPage(items)
         -- _opdsFetchMore runs one against the fuller page. Two passes would
         -- fight over _opds_cover_token -- the first batch's downloads land,
         -- then find their token superseded and skip the repaint.
+        return
+    end
+    if items and items.opds_preflight then
+        self:_opdsResolveBeforePaint(items.opds_preflight)
         return
     end
     self:_opdsEnsureCovers()

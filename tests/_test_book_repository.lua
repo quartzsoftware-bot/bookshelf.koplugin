@@ -4070,10 +4070,8 @@ test("getBySource: opds nav tile stays nil when the child feed has no cached win
     package.loaded["lib/bookshelf_opds_window"] = nil
     package.loaded["lib/bookshelf_opds_covers"] = nil
 
-    assert(list[1].cover_image_path == nil,
-        "no cached child window -> nav tile stays a placeholder")
-    assert(list[1].cover_borrowed == nil,
-        "nothing borrowed -> the flag is never set")
+    assert(#list == 0 and list.opds_preflight,
+        "uncached child must resolve before any provisional folder is published")
 end)
 
 test("getBySource: opds nav tile cover borrow is capped at the first 12 child entries", function()
@@ -4498,7 +4496,38 @@ local function _opdsFlattenCleanup()
     if _G._test_settings then _G._test_settings["bookshelf_opds_downloads"] = nil end
 end
 
-test("OPDS News tile keeps its identity when its single child finishes loading", function()
+test("existing Mo News completion filter remains applied before pagination", function()
+    local records = {
+        {filepath="OPDS://mo/finished",opds={}},
+        {filepath="OPDS://mo/unread1",opds={}},
+        {filepath="OPDS://mo/unread2",opds={}},
+    }
+    _opdsFlattenLfsStub()
+    package.loaded["lib/bookshelf_opds_window"] = {
+        load=function() return {count=3,fetched_at=1} end,
+        slice=function(_,offset,limit)
+            local out={}
+            for i=(offset or 0)+1,math.min(3,(offset or 0)+(limit or 3)) do
+                local copy={};for k,v in pairs(records[i]) do copy[k]=v end
+                out[#out+1]=copy
+            end
+            return out,3,false
+        end,
+        needsFetch=function() return false end,
+    }
+    package.loaded["lib/bookshelf_opds_covers"]={cachedPath=function() return nil end,cachePath=function() return nil end}
+    _G._test_settings["bookshelf_opds_downloads"]={[records[1].filepath]="/books/finished.epub"}
+    local progress=Repo.progressFor
+    Repo.progressFor=function() return 1,"complete" end
+    local page,total=Repo.getBySource({kind="opds",id="mo",feed_url="http://mo/",mo_news_status_filter=true},
+        {statuses={unread=true}},nil,1,1)
+    Repo.progressFor=progress
+    _opdsFlattenCleanup()
+    assert(total==2 and #page==1 and page[1].filepath==records[3].filepath,
+        "status filtering must retain correct totals and page offsets")
+end)
+
+test("OPDS News resolves its child before publishing the first shelf tile", function()
     local loaded = false
     local nav = { filepath = "OPDS://news/nav", kind = "opds_nav", is_opds_nav = true,
         is_remote = true, title = "News", opds = {feed_url = "http://news/child"} }
@@ -4530,11 +4559,13 @@ test("OPDS News tile keeps its identity when its single child finishes loading",
     loaded = true
     local after = Repo.getBySource(source,nil,nil,0,10)
     _opdsFlattenCleanup()
-    assert(before[1].filepath == after[1].filepath,
-        "visible News tile changes from " .. before[1].filepath .. " to " .. after[1].filepath)
+    assert(#before == 0 and before.opds_preflight,
+        "unresolved News folder was exposed as a shelf tile")
+    assert(after[1].filepath == article.filepath,
+        "first available shelf tile must be the article")
 end)
 
-test("getBySource: a cached single-book OPDS folder keeps its navigation identity", function()
+test("getBySource: opds nav folder holding exactly one cached book renders as that book", function()
     local nav = { filepath = "OPDS://f1/nav/work", kind = "opds_nav", is_opds_nav = true,
                   is_remote = true, title = "Moby Dick", display_title = "Moby Dick",
                   opds = { feed_url = "http://f1/work" } }
@@ -4588,13 +4619,15 @@ test("getBySource: a cached single-book OPDS folder keeps its navigation identit
     _opdsFlattenCleanup()
 
     assert(total == 1, "the page still holds one record")
-    assert(list[1].filepath == nav.filepath, "the navigation tile stays a folder")
-    assert(list[1].is_opds_nav == true)
-    assert(list[1].kind == "opds_nav")
-    assert(list[1].opds.acquisitions == nil, "folder keeps its navigation action")
-    assert(list[1].cover_image_path == "/cache/b1.img", "folder may borrow cached child artwork")
-    assert(list[1].cover_borrowed == true)
-    assert(list[1].downloaded == nil, "a downloaded child does not turn the folder into a book")
+    assert(list[1].filepath == "OPDS://f1/book1", "the nav record is replaced by the child book")
+    assert(list[1].is_opds_nav == nil, "the substituted record is an ordinary remote book")
+    assert(list[1].kind == nil, "no leftover opds_nav kind")
+    assert(list[1].opds.acquisitions ~= nil, "the book's acquisitions come through, so download works")
+    -- Decoration ordering: the substitution happens BEFORE the cover and
+    -- downloaded passes, so the book is decorated like any other page record.
+    assert(list[1].cover_image_path == "/cache/b1.img", "the substituted book gets its OWN cached cover")
+    assert(list[1].cover_borrowed == nil, "its own cover is not a borrow")
+    assert(list[1].downloaded == true, "the downloaded tick lands on the substituted book")
     -- Shallow copy, same discipline as OpdsWindow.slice: the stored child entry
     -- must not pick up render state that would then be persisted.
     assert(child.cover_image_path == nil, "the stored child entry is never decorated")
@@ -4737,9 +4770,8 @@ test("getBySource: opds nav folder with no cached child window stays a folder", 
         { kind = "opds", id = "f4", feed_url = "http://f4/root" }, nil, nil, 0, 10)
     _opdsFlattenCleanup()
 
-    assert(list[1].is_opds_nav == true,
-        "nothing cached to flatten with: the folder is unchanged until it is drilled once")
-    assert(list[1].filepath == "OPDS://f4/nav/work", "the nav record is left in place")
+    assert(#list == 0 and list.opds_preflight, "unknown child waits before first tile render")
+    assert(list.opds_preflight[1].feed_url == "http://f4/work")
 end)
 
 test("getBySource: opds nav folder whose child window is only partly fetched stays a folder", function()
@@ -4922,7 +4954,7 @@ test("getBySource: opds book records mirror opds.summary into description", func
                                     acquisitions = { { type = "application/epub+zip",
                                                        href = "http://d1/3.epub" } } } }
     local nav          = { filepath = "OPDS://d1/nav/x", kind = "opds_nav", is_opds_nav = true,
-                           is_remote = true, title = "Folder",
+                           is_remote = true, title = "Folder", nav_item_count = 2,
                            opds = { feed_url = "http://d1/sub" } }
 
     _opdsFlattenLfsStub()
@@ -4972,7 +5004,7 @@ test("getBySource: opds book records mirror opds.summary into description", func
     assert(list[4].description == nil, "a nav folder is not a book and gets no description")
 end)
 
-test("getBySource: a single-book folder does not acquire its child description", function()
+test("getBySource: the flattened folder-of-one book carries its summary as description", function()
     -- Decoration ordering again: the substituted child must be decorated like
     -- any other page record, description included.
     local nav = { filepath = "OPDS://d2/nav/work", kind = "opds_nav", is_opds_nav = true,
@@ -5016,8 +5048,9 @@ test("getBySource: a single-book folder does not acquire its child description",
         { kind = "opds", id = "d2", feed_url = "http://d2/root" }, nil, nil, 0, 10)
     _opdsFlattenCleanup()
 
-    assert(list[1].filepath == nav.filepath, "folder remains the parent record")
-    assert(list[1].description == nil, "child metadata must not replace the folder")
+    assert(list[1].filepath == "OPDS://d2/book1", "the folder still flattens to the child book")
+    assert(list[1].description == "Call me Ishmael.",
+        "and the substituted book carries the description, got " .. tostring(list[1].description))
     assert(child.description == nil,
         "the STORED child entry is never decorated (it would be persisted)")
 end)

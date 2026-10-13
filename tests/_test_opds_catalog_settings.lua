@@ -106,7 +106,7 @@ if after_page_src then
         and after_page_src:find("_opdsFetchMore", silent_at, true)
     ok(loud_after ~= nil,
         "the empty case still reaches the user-facing fetch, after the silent check")
-    local gate_at = after_page_src:find("if not user_nav then return end", 1, true)
+    local gate_at = after_page_src:find("if not user_nav then", 1, true)
     ok(gate_at and silent_at and gate_at < silent_at,
         "and all of it sits behind the user-initiated gate")
 end
@@ -118,7 +118,7 @@ end
 -- whole reason the nav gate exists. The check must sit AFTER the gate.
 local after_page = extract("_opdsAfterPage%(items%)")
 if after_page then
-    local gate_at = after_page:find("if not user_nav then return end", 1, true)
+    local gate_at = after_page:find("if not user_nav then", 1, true)
     local age_at  = after_page:find("refreshAge", 1, true)
     ok(gate_at ~= nil, "_opdsAfterPage still has its user_nav gate")
     ok(age_at ~= nil, "_opdsAfterPage performs the age check")
