@@ -7777,9 +7777,11 @@ function Repo.getBySource(source, filter, sort_priority, offset, limit, opts)
         end
         local win = OpdsWindow.load(source.id, feed_url)
         local page, total, open_ended = OpdsWindow.slice(win, offset, limit)
-        -- Mo News: apply local completion status before paginating the cache.
-        if source.mo_news_status_filter and filter and filter.statuses
+        -- News/Trials: apply local completion status before paginating the cache.
+        local status_filtered = false
+        if (source.local_status_filter or source.mo_news_status_filter) and filter and filter.statuses
                 and next(filter.statuses) then
+            status_filtered = true
             local all
             all, total, open_ended = OpdsWindow.slice(win, 0, win.count or 0)
             local downloads = BookshelfSettings.read("opds_downloads") or {}
@@ -7805,7 +7807,8 @@ function Repo.getBySource(source, filter, sort_priority, offset, limit, opts)
             end
         end
         page.opds_open_ended = open_ended
-        page.opds_needs_fetch = OpdsWindow.needsFetch(win, offset or 0, limit or 0)
+        page.opds_needs_fetch = (status_filtered and open_ended and #page < (limit or total))
+                                or OpdsWindow.needsFetch(win, offset or 0, limit or 0)
                                 or ((win.count or 0) == 0 and win.fetched_at == 0)
         -- Child windows loaded while decorating this page, keyed by feed url.
         -- The flattening pass and the cover borrow below both want a nav

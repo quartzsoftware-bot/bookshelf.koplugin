@@ -68,3 +68,15 @@ together before the page is released; covers load afterwards. Offline, failed or
 cancelled lookups release normal folder navigation, and passive repaints do not
 retry them. Deliberate navigation or refresh permits another attempt. This replaces
 the folder-preserving behavior of opds.3.
+
+## Download new items on open
+
+Opening an undownloaded OPDS book/article starts its download without the format
+confirmation dialog. Bookshelf chooses its highest-ranked format supported by this
+device (preferring EPUB); long-press still exposes details and manual format choices.
+This applies to the open gesture, not background shelf browsing or the initial
+hero preview. Existing local copies retain server-version checks. The automatic
+opening setting above still controls whether a completed download opens immediately.
+
+The device's News/Trials local completion-status filter is preserved, including
+fetching further pages when filtering leaves a partially cached page short.

@@ -6171,7 +6171,7 @@ function BookshelfWidget:_shelfCallbacks()
             else
                 -- A remote (OPDS) book that is ALREADY the previewed hero
                 -- book: the second tap is the commit gesture, and for a
-                -- catalogue book the commit is the download modal (mirrors
+                -- catalogue book the commit opens or downloads it (mirrors
                 -- local books, where the second gesture - hero tap or double
                 -- tap - opens the book). Local books keep preview-only here.
                 -- In micro-module hero mode the tap swaps the hero back to the
@@ -6183,7 +6183,7 @@ function BookshelfWidget:_shelfCallbacks()
                     -- A registered source's record: its commit is the
                     -- source's own open (a download, say).
                     if bw:_sourceRemote(b) then bw:_openBook(b) return end
-                    bw:_showRemoteBookInfo(b)
+                    bw:_opdsOpenBook(b)
                     return
                 end
                 bw:_previewBook(b, tap_t)
@@ -18624,7 +18624,7 @@ end
 -- Opening an existing acquisition checks the live file, never cached feed dates.
 function BookshelfWidget:_opdsOpenBook(book, after_open_callback, existing_path, acquisition)
     local path = existing_path or self:_opdsDownloadedPath(book)
-    if not path then self:_showRemoteBookInfo(book) return end
+    if not path then self:_showRemoteBookInfo(book, { auto_download = true }) return end
     local function open() self:_launchReader(path, after_open_callback) end
     local V = require("lib/bookshelf_opds_version")
     local acq = acquisition or V.acquisition(book, path)
@@ -18667,6 +18667,7 @@ function BookshelfWidget:_opdsOpenBook(book, after_open_callback, existing_path,
     end)
 end
 
+-- opts.auto_download: opening a new item skips the format chooser.
 -- opts.no_cover_fetch: set on the ONE re-show the on-open cover fetch triggers,
 -- so the reopened dialog can't start another (and can't loop against a server
 -- that answers with something undecodable).
@@ -18721,6 +18722,12 @@ function BookshelfWidget:_showRemoteBookInfo(book, opts)
     local ordered, rec_idx = usable, nil
     if ok_rank and OpdsDownload.rankAcquisitions then
         ordered, rec_idx = OpdsDownload.rankAcquisitions(usable)
+    end
+    -- Opening a new catalog item commits to its highest-ranked supported
+    -- format. Explicit details/long-press still offers every format.
+    if opts.auto_download and not have and ordered[rec_idx or 1] then
+        self:_opdsStartDownload(book, ordered[rec_idx or 1])
+        return
     end
     -- A disabled, centred, bold row reads as a section heading in a
     -- ButtonDialog (it can't take focus or a tap).
@@ -25172,7 +25179,7 @@ function BookshelfWidget:_expandOpdsNav(rec, no_fetch)
     if lone then
         -- Same journey as a plain book tap: the first tap stages the
         -- flattened book in the hero (cover and description fetch included),
-        -- and a second tap on the same tile opens the download modal. The
+        -- and a second tap on the same tile opens or downloads it. The
         -- lone child is a DIFFERENT record from the nav tile, so the
         -- "already previewed" test compares against the child's filepath.
         -- Micro-hero mode is excluded for the same reason as the book
@@ -25183,7 +25190,7 @@ function BookshelfWidget:_expandOpdsNav(rec, no_fetch)
             logger.dbg(string.format(
                 "[bookshelf perf] _expandOpdsNav: lone re-tap -> modal, pre_modal=%.0fms",
                 (_gettime() - _perf_t0) * 1000))
-            self:_showRemoteBookInfo(lone)
+            self:_opdsOpenBook(lone)
             return
         end
         logger.dbg(string.format(

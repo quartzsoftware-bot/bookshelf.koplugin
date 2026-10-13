@@ -118,6 +118,7 @@ package.loaded["lib/bookshelf_spine_widget"] = {
 -- that lets the success path run to the prompt.
 package.loaded["lib/bookshelf_opds_download"] = {
     STORE_KEY = "opds_downloads",
+    filenameFor = function() return "test.epub" end,
     download  = function(_url, dest) note("download"); return dest end,
     pruneMap  = function(map) return map, 0 end,
 }
@@ -307,6 +308,38 @@ t.test("auto-open never launches after failure, cancellation or shelf closure", 
     eq(count("launchReader"), 0); eq(box, nil)
     trap.dismissableRunInSubprocess = real_run
     store.isTrue = old
+end)
+
+t.test("opening undownloaded OPDS items selects a supported format without a dialog", function()
+    local old_registry = package.loaded["document/documentregistry"]
+    package.loaded["document/documentregistry"] = {
+        hasProvider = function(_, _, mime) return mime == "application/epub+zip" end,
+    }
+    local b = { filepath = BOOK.filepath, title = BOOK.title, opds = { acquisitions = {
+        { href = "http://host/test.pdf", type = "application/pdf" }, ACQ,
+    } } }
+    local s = shelf()
+    s._opdsDownloadedPath = function() return nil end
+    local picked
+    s._opdsStartDownload = function(_, book, acq, dialog)
+        eq(book, b); eq(dialog, nil); picked = acq
+    end
+    s:_opdsOpenBook(b)
+    eq(picked, ACQ)
+    -- Explicit details and unavailable formats must continue to the viewer.
+    s._remoteDescriptionArgs = function() error("details reached") end
+    picked = nil
+    local ok, err = pcall(s._showRemoteBookInfo, s, b)
+    eq(ok, false); assert(tostring(err):find("details reached", 1, true), tostring(err)); eq(picked, nil)
+    b.opds.acquisitions = { { href = "http://host/test.pdf", type = "application/pdf" } }
+    ok, err = pcall(s._opdsOpenBook, s, b)
+    eq(ok, false); assert(tostring(err):find("details reached", 1, true), tostring(err)); eq(picked, nil)
+    -- An existing copy never takes the new-item shortcut.
+    s._opdsDownloadedPath = function() return DEST end
+    b.opds.acquisitions = { ACQ }
+    ok, err = pcall(s._showRemoteBookInfo, s, b, { auto_download = true })
+    eq(ok, false); assert(tostring(err):find("details reached", 1, true), tostring(err)); eq(picked, nil)
+    package.loaded["document/documentregistry"] = old_registry
 end)
 
 t.done()
