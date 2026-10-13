@@ -260,4 +260,16 @@ t.test("a shelf that died mid-transfer is not rebuilt", function()
     eq(count("rebuild"), 0, "rebuild count on a dead shelf:")
 end)
 
+t.test("cancelled replacement preserves the existing book", function()
+    local trap = package.loaded["ui/trapper"]
+    local real_run, real_remove = trap.dismissableRunInSubprocess, os.remove
+    trap.dismissableRunInSubprocess = function() return false end
+    local removed = {}
+    os.remove = function(path) removed[#removed + 1] = path end
+    run()
+    trap.dismissableRunInSubprocess, os.remove = real_run, real_remove
+    eq(#removed, 1)
+    eq(removed[1], DEST .. ".tmp")
+end)
+
 t.done()

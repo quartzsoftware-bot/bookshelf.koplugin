@@ -449,9 +449,7 @@ end
 -- removes dest_path before renaming, which is fine for its disposable cache
 -- files, but dest_path here is the user's permanent library book. The rename
 -- is tried directly first (POSIX rename replaces an existing file
--- atomically, so this is the common case); only if that fails is the
--- existing file removed and the rename retried, so a re-download never
--- deletes the original before confirming the replacement can land.
+-- atomically). If replacement fails, preserve the original and report failure.
 --
 -- user/password are OPTIONAL basic-auth credentials sent exactly as given,
 -- with NO same-origin check -- see the header note above.
@@ -564,15 +562,9 @@ function D.download(url, dest_path, user, password, redirect_depth)
     end
 
     if not os.rename(tmp, dest_path) then
-        -- The direct rename can fail for reasons unrelated to dest_path
-        -- existing (e.g. a stale lock); only clear it out and retry once,
-        -- rather than removing it up front and risking an unrecoverable
-        -- loss if the retry then also fails.
-        pcall(os.remove, dest_path)
-        if not os.rename(tmp, dest_path) then
-            pcall(os.remove, tmp)
-            return nil, "rename failed"
-        end
+        -- A failed atomic replacement must leave the reader's old book intact.
+        pcall(os.remove, tmp)
+        return nil, "rename failed"
     end
     return dest_path
 end

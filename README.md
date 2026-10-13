@@ -1,3 +1,5 @@
+> This fork adds OPDS version checks before opening downloaded books. See [FORK.md](FORK.md).
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/AndyHazz/bookshelf.koplugin/master/assets/bookshelf-logo-dark.png">

@@ -4599,7 +4599,7 @@ function BookshelfWidget:_openBook(book, after_open_callback)
     end
     if open_path == book.filepath and self:_isRemoteRecord(book) then
         if self:_sourceRemote(book) then self:_showSourceInfo(book, after_open_callback) return end
-        self:_showRemoteBookInfo(book)
+        self:_opdsOpenBook(book, after_open_callback)
         return
     end
     -- Stale records (Send-to-Kindle moved/removed the file after BIM cached
@@ -18531,6 +18531,52 @@ function BookshelfWidget:_remoteDescriptionArgs(book)
     }
 end
 
+-- Opening an existing acquisition checks the live file, never cached feed dates.
+function BookshelfWidget:_opdsOpenBook(book, after_open_callback, existing_path, acquisition)
+    local path = existing_path or self:_opdsDownloadedPath(book)
+    if not path then self:_showRemoteBookInfo(book) return end
+    local function open() self:_launchReader(path, after_open_callback) end
+    local V = require("lib/bookshelf_opds_version")
+    local acq = acquisition or V.acquisition(book, path)
+    if not acq or self:_opdsFetchBusy()
+        or not require("ui/network/manager"):isConnected() then open() return end
+    local key = book.filepath:match("^OPDS://([^/]+)/")
+    local server = key and require("lib/bookshelf_opds_source").getServer(key)
+    local same_origin = server and require("lib/bookshelf_opds_feed").sameOrigin(server.url, acq.href)
+    local versions = BookshelfSettings.read(V.STORE_KEY) or {}
+    local Trapper = require("ui/trapper")
+    Trapper:wrap(function()
+        if BookshelfWidget.live ~= self then return end
+        if self:_opdsFetchBusy() then open() return end
+        self._opds_download_started_at = os.time()
+        local completed, result = Trapper:dismissableRunInSubprocess(function()
+            local state, version = V.check(acq.href, path,
+                same_origin and server.username or nil,
+                same_origin and server.password or nil, versions[path], book.filepath)
+            return { state = state, version = version }
+        end, _("Checking server version… (tap to cancel)"))
+        Trapper:clear()
+        self._opds_download_started_at = nil
+        -- A cancelled EPUB check may leave its scratch archive behind.
+        pcall(os.remove, path .. ".bookshelf-check.tmp")
+        if BookshelfWidget.live ~= self then return end
+        if completed and type(result) == "table" and result.state == "different" then
+            UIManager:show(require("ui/widget/confirmbox"):new{
+                text = _("The server copy differs from this book. Download the current version?"),
+                ok_text = _("Update"), cancel_text = _("Open local copy"),
+                ok_callback = function() self:_opdsRunDownload(book, acq, path) end,
+                cancel_callback = open,
+            })
+            return
+        end
+        if completed and type(result) == "table" and result.version then
+            versions[path] = result.version
+            BookshelfSettings.save(V.STORE_KEY, versions)
+        end
+        open()
+    end)
+end
+
 -- opts.no_cover_fetch: set on the ONE re-show the on-open cover fetch triggers,
 -- so the reopened dialog can't start another (and can't loop against a server
 -- that answers with something undecodable).
@@ -18570,7 +18616,7 @@ function BookshelfWidget:_showRemoteBookInfo(book, opts)
             text = _("Open"),
             callback = function()
                 UIManager:close(dialog)
-                self:_launchReader(have)
+                self:_opdsOpenBook(book)
             end,
         } }
     end
@@ -18885,11 +18931,8 @@ function BookshelfWidget:_opdsStartDownload(book, acq, dialog)
     local function go() self:_opdsRunDownload(book, acq, dest, dialog) end
 
     if is_file(dest) then
-        UIManager:show(require("ui/widget/confirmbox"):new{
-            text = T(_("%1 already exists. Download it again?"), name),
-            ok_text = _("Overwrite"),
-            ok_callback = go,
-        })
+        if dialog then UIManager:close(dialog) end
+        self:_opdsOpenBook(book, nil, dest, acq)
         return
     end
     go()
@@ -18972,7 +19015,6 @@ function BookshelfWidget:_opdsRunDownload(book, acq, dest, dialog)
                 -- The fork downloads into dest .. ".tmp" and renames on
                 -- success; a SIGKILL leaves the temp, not dest.
                 pcall(function() os.remove(dest .. ".tmp") end)
-                pcall(function() os.remove(dest) end)
                 UIManager:show(Notification:new{
                     text = _("Download cancelled"),
                 })
